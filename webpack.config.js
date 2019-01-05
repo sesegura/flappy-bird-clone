@@ -18,7 +18,7 @@ module.exports = {
 
     plugins: [
         new HtmlWebpackPlugin({
-            title: "Flappy Bird HTML5 Clone"
+            template: "./src/index.html"
         }),
 
         new webpack.HotModuleReplacementPlugin()
