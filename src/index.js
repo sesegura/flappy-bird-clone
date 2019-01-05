@@ -9,7 +9,12 @@ const CONFIG = {
     UPDATE_INTERVAL: 1 / 60,
 
     // physics
-    GRAVITY: 9.8
+    GRAVITY: 9.8,
+    IMPULSE: 600
+};
+
+const KEYS = {
+    SPACE: 32
 };
 
 function Player() {
@@ -22,20 +27,17 @@ function Player() {
         x: initialPlayerX,
         y: initialPlayerY,
 
+        acceleration: 0,
+        speed: 0,
+
+        maxSpeed: 400,
+
         height,
         width,
 
+        isJumping: false,
+
         isGravityActive: false,
-
-        draw(ctx) {
-            if (!this.isGravityActive) {
-                return ctx.fillRect(this.x, this.y, this.width, this.height);
-            }
-
-            this.y += CONFIG.GRAVITY;
-
-            ctx.fillRect(this.x, this.y, this.width, this.height);
-        },
 
         isAlive() {
             if (CONFIG.GRAVITY + this.y > CONFIG.HEIGHT) {
@@ -47,6 +49,46 @@ function Player() {
 
         toggleGravity() {
             this.isGravityActive = true;
+        },
+
+        onFlap() {
+            this.isJumping = true;
+        },
+
+        update() {
+            if (!this.isGravityActive) {
+                return;
+            }
+
+            this.acceleration = CONFIG.GRAVITY;
+
+            if (this.isJumping) {
+                this.acceleration -= CONFIG.IMPULSE;
+            }
+
+            let speed =
+                this.speed +
+                this.acceleration +
+                this.acceleration * CONFIG.UPDATE_INTERVAL;
+
+            this.speed = Math.max(
+                -this.maxSpeed,
+                Math.min(this.maxSpeed, speed)
+            );
+
+            this.y += this.speed * CONFIG.UPDATE_INTERVAL;
+        },
+
+        draw(ctx, dt) {
+            if (!this.isAlive()) {
+                return;
+            }
+
+            ctx.fillText(`speed ${this.speed}`, 10, 20);
+
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+
+            this.isJumping = false;
         }
     };
 }
@@ -58,9 +100,12 @@ function Game() {
         canvas: null,
         ctx: null,
 
+        isPlaying: false,
+
         player: null,
 
         onPlayHandler: null,
+        onKeyDownHandler: null,
 
         // -------- Methods -------- //
 
@@ -77,13 +122,21 @@ function Game() {
 
             this.canvas.removeEventListener("click", this.onPlayHandler);
             this.canvas.addEventListener("click", this.onPlayHandler);
+
+            this.onKeyDownHandler = this.onKeyDownHandler
+                ? this.onKeyDownHandler
+                : this.onKeyDown.bind(this);
+
+            window.removeEventListener("keydown", this.onKeyDownHandler);
+            window.addEventListener("keydown", this.onKeyDownHandler);
         },
 
         play() {
             if (!this.player.isAlive()) {
-                return this.start();
+                return this.setup();
             }
 
+            this.isPlaying = true;
             this.player.toggleGravity();
         },
 
@@ -91,11 +144,12 @@ function Game() {
             this.ctx.clearRect(0, 0, CONFIG.WIDTH, CONFIG.HEIGHT);
         },
 
-        render() {
+        render(dt) {
             this.clear();
 
             // player
-            this.player.draw(this.ctx);
+            this.player.draw(this.ctx, dt);
+            this.ctx.fillText(`y: ${this.player.y}`, 10, 10);
 
             if (!this.player.isAlive()) {
                 this.ctx.fillText(
@@ -106,34 +160,44 @@ function Game() {
             }
         },
 
+        onKeyDown(e) {
+            if (!this.isPlaying || KEYS.SPACE != e.keyCode) {
+                return this.play();
+            }
+
+            this.player.onFlap();
+        },
+
+        handleGameOver() {
+            this.isPlaying = false;
+        },
+
         update() {
             if (!this.player.isAlive()) {
                 return this.handleGameOver();
             }
+
+            this.player.update();
         },
 
         start() {
             this.setup();
 
-            let tsDiff = 0,
+            let dt = 0,
                 last = window.performance.now();
 
             const frame = () => {
-                if (!this.player.isAlive()) {
-                    return;
-                }
-
                 const now = window.performance.now();
-                tsDiff = tsDiff + Math.min(1, (now - last) / 1000);
+                dt = dt + Math.min(1, (now - last) / 1000);
 
-                while (tsDiff > CONFIG.UPDATE_INTERVAL) {
-                    tsDiff = tsDiff - CONFIG.UPDATE_INTERVAL;
+                while (dt > CONFIG.UPDATE_INTERVAL) {
+                    dt = dt - CONFIG.UPDATE_INTERVAL;
                     this.update();
                 }
 
                 last = now;
 
-                this.render();
+                this.render(dt);
 
                 window.requestAnimationFrame(frame);
             };
