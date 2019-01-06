@@ -10,13 +10,17 @@ const CONFIG = {
 
     // physics
     GRAVITY: 9.8,
-    IMPULSE: 600,
+    IMPULSE: 450,
+
+    // player
+    MAX_SPEED: 300,
 
     // obstacles
     PIPES: 10,
     PIPE_HEIGHT: 60,
-    PIPE_VELOCITY: 300,
-    PIPE_WIDTH: 100
+    PIPE_SPEED: 300,
+    PIPE_WIDTH: 100,
+    PIPE_INTERVAL: 2000
 };
 
 const KEYS = {
@@ -36,7 +40,7 @@ function Player() {
         acceleration: 0,
         speed: 0,
 
-        maxSpeed: 400,
+        maxSpeed: CONFIG.MAX_SPEED,
 
         height,
         width,
@@ -102,8 +106,6 @@ function Player() {
                 return;
             }
 
-            ctx.fillText(`speed ${this.speed}`, 10, 20);
-
             ctx.fillRect(this.x, this.y, this.width, this.height);
 
             this.isJumping = false;
@@ -149,7 +151,7 @@ function Pipe() {
         },
 
         update() {
-            this.x -= CONFIG.PIPE_VELOCITY * CONFIG.UPDATE_INTERVAL;
+            this.x -= CONFIG.PIPE_SPEED * CONFIG.UPDATE_INTERVAL;
         },
 
         draw(ctx) {
@@ -192,16 +194,23 @@ function Pipe() {
 }
 
 function Game() {
+    const canvas = document.getElementById(CONFIG.DOM_ELEMENT_ID);
+    const ctx = canvas.getContext("2d");
+
     return {
         // -------- Game properties -------- //
 
-        canvas: null,
-        ctx: null,
+        canvas,
+        ctx,
 
         isPlaying: false,
 
         player: null,
         pipes: [],
+
+        score: 0,
+        maxScore: 0,
+        newRecord: false,
 
         onPlayHandler: null,
         onKeyPressedHandler: null,
@@ -211,9 +220,8 @@ function Game() {
         // -------- Methods -------- //
 
         setup() {
-            this.canvas = document.getElementById(CONFIG.DOM_ELEMENT_ID);
-
-            this.ctx = this.canvas.getContext("2d");
+            this.score = 0;
+            this.newRecord = false;
 
             this.player = new Player();
             this.pipes = [];
@@ -248,7 +256,7 @@ function Game() {
             clearInterval(this.addPipeInterval);
             this.addPipeInterval = setInterval(
                 this.addPipe.bind(this),
-                Math.floor(Math.random() * 2000 + 2000)
+                CONFIG.PIPE_INTERVAL
             );
         },
 
@@ -258,49 +266,87 @@ function Game() {
             pipe.init();
         },
 
+        drawScore() {
+            this.ctx.font = "20px Arial";
+
+            if (this.isPlaying) {
+                if (this.newRecord) {
+                    this.ctx.fillText(`NEW RECORD!!`, 20, 30);
+                }
+
+                this.ctx.fillText(
+                    `Score: ${this.score}`,
+                    CONFIG.WIDTH - 100,
+                    30
+                );
+            }
+
+            if (!this.player.isAlive()) {
+                this.ctx.fillText(
+                    "GAME OVER",
+                    CONFIG.WIDTH / 2 - 60,
+                    CONFIG.HEIGHT / 2
+                );
+
+                this.ctx.font = "13px Arial";
+                this.ctx.fillText(
+                    `MAX SCORE: ${this.maxScore}`,
+                    CONFIG.WIDTH / 2 - 45,
+                    CONFIG.HEIGHT / 2 + 25
+                );
+
+                if (this.newRecord) {
+                    this.ctx.font = "15px Arial";
+                    this.ctx.fillText(
+                        `NEW RECORD!!`,
+                        CONFIG.WIDTH / 2 - 55,
+                        CONFIG.HEIGHT / 2 + 50
+                    );
+                }
+            }
+        },
+
         render() {
             this.clear();
+
+            this.drawScore();
 
             // player
             this.player.draw(this.ctx);
             this.pipes.forEach(pipe => {
                 pipe.draw(this.ctx);
             });
-
-            this.ctx.fillText(`y: ${this.player.y}`, 10, 10);
-            this.ctx.fillText(`${this.pipes.length}`, 10, 30);
-
-            if (!this.player.isAlive()) {
-                this.ctx.fillText(
-                    "GAME OVER",
-                    CONFIG.WIDTH / 2 - 25,
-                    CONFIG.HEIGHT / 2
-                );
-            }
-            if (this.hasPlayerCollided(this.pipes[0])) {
-                this.player.setIsAlive(false);
-            }
         },
 
         update() {
+            if (this.hasPlayerCollided(this.pipes[0])) {
+                this.player.setIsAlive(false);
+            }
+
             if (!this.player.isAlive()) {
                 return this.handleGameOver();
             }
 
             this.player.update();
 
-            const hiddenPipes = [];
+            const pipesToDelete = [];
             this.pipes.forEach((pipe, index) => {
                 pipe.update();
 
                 if (!pipe.isVisibleToPlayer()) {
-                    hiddenPipes.push(index);
+                    pipesToDelete.push(index);
                 }
             });
 
-            hiddenPipes.forEach(pipe => {
+            pipesToDelete.forEach(pipe => {
                 this.pipes.splice(pipe, 1);
             });
+
+            this.score += pipesToDelete.length;
+            if (this.score > this.maxScore) {
+                this.maxScore = this.score;
+                this.newRecord = true;
+            }
         },
 
         onKeyPressed(e) {
@@ -313,6 +359,7 @@ function Game() {
 
         handleGameOver() {
             this.isPlaying = false;
+
             clearInterval(this.addPipeInterval);
             this.pipes = [];
         },
@@ -324,9 +371,6 @@ function Game() {
 
             const playerRect = this.player.getRect();
             const pipeRect = pipe.getRect();
-
-            this.ctx.fillText(`player: ${JSON.stringify(playerRect)}`, 10, 50);
-            this.ctx.fillText(`pipe: ${JSON.stringify(pipeRect)}`, 10, 60);
 
             const horizontalCollision =
                 playerRect.right >= pipeRect.left &&
