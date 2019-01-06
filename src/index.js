@@ -10,7 +10,13 @@ const CONFIG = {
 
     // physics
     GRAVITY: 9.8,
-    IMPULSE: 600
+    IMPULSE: 600,
+
+    // obstacles
+    PIPES: 10,
+    PIPE_HEIGHT: 60,
+    PIPE_VELOCITY: 300,
+    PIPE_WIDTH: 100
 };
 
 const KEYS = {
@@ -39,12 +45,24 @@ function Player() {
 
         isGravityActive: false,
 
+        _isAlive: true,
+
         isAlive() {
-            if (CONFIG.GRAVITY + this.y > CONFIG.HEIGHT) {
+            // out of top boundary
+            if (this.y + this.height <= 0) {
                 return false;
             }
 
-            return true;
+            // out of bottom boundary
+            if (this.y > CONFIG.HEIGHT) {
+                return false;
+            }
+
+            return this._isAlive;
+        },
+
+        setIsAlive(value) {
+            this._isAlive = value;
         },
 
         toggleGravity() {
@@ -79,7 +97,7 @@ function Player() {
             this.y += this.speed * CONFIG.UPDATE_INTERVAL;
         },
 
-        draw(ctx, dt) {
+        draw(ctx) {
             if (!this.isAlive()) {
                 return;
             }
@@ -89,6 +107,86 @@ function Player() {
             ctx.fillRect(this.x, this.y, this.width, this.height);
 
             this.isJumping = false;
+        },
+
+        getRect() {
+            return {
+                top: this.y,
+                left: this.x,
+                bottom: this.y + this.height,
+                right: this.x + this.width
+            };
+        }
+    };
+}
+
+function Pipe() {
+    return {
+        x: CONFIG.WIDTH,
+
+        topSection: null,
+        bottomSection: null,
+
+        width: CONFIG.PIPE_WIDTH,
+
+        _isActive: false,
+
+        init() {
+            const top = Math.floor(Math.random() * (CONFIG.PIPES - 4) + 2);
+
+            this.topSection = CONFIG.PIPE_HEIGHT * top;
+            this.bottomSection = CONFIG.PIPE_HEIGHT * (CONFIG.PIPES - top - 2);
+
+            this._isActive = true;
+        },
+
+        isActive() {
+            return this._isActive;
+        },
+
+        isVisibleToPlayer() {
+            return this.x + this.width >= 0;
+        },
+
+        update() {
+            this.x -= CONFIG.PIPE_VELOCITY * CONFIG.UPDATE_INTERVAL;
+        },
+
+        draw(ctx) {
+            if (!this.isActive() || !this.isVisibleToPlayer()) {
+                return;
+            }
+
+            this._drawTopPipe(ctx);
+            this._drawBottomPipe(ctx);
+        },
+
+        _drawTopPipe(ctx) {
+            ctx.fillRect(this.x, 0, this.width, this.topSection);
+        },
+
+        _drawBottomPipe(ctx) {
+            ctx.fillRect(
+                this.x,
+                this.topSection + CONFIG.PIPE_HEIGHT * 2,
+                this.width,
+                this.bottomSection
+            );
+        },
+
+        getRect() {
+            return {
+                left: this.x,
+                right: this.x + this.width,
+                topSection: {
+                    top: 0,
+                    bottom: this.topSection
+                },
+                bottomSection: {
+                    top: CONFIG.HEIGHT - this.bottomSection,
+                    bottom: CONFIG.HEIGHT
+                }
+            };
         }
     };
 }
@@ -103,9 +201,12 @@ function Game() {
         isPlaying: false,
 
         player: null,
+        pipes: [],
 
         onPlayHandler: null,
-        onKeyDownHandler: null,
+        onKeyPressedHandler: null,
+
+        addPipeInterval: null,
 
         // -------- Methods -------- //
 
@@ -115,6 +216,7 @@ function Game() {
             this.ctx = this.canvas.getContext("2d");
 
             this.player = new Player();
+            this.pipes = [];
 
             this.onPlayHandler = this.onPlayHandler
                 ? this.onPlayHandler
@@ -123,12 +225,16 @@ function Game() {
             this.canvas.removeEventListener("click", this.onPlayHandler);
             this.canvas.addEventListener("click", this.onPlayHandler);
 
-            this.onKeyDownHandler = this.onKeyDownHandler
-                ? this.onKeyDownHandler
-                : this.onKeyDown.bind(this);
+            this.onKeyPressedHandler = this.onKeyPressedHandler
+                ? this.onKeyPressedHandler
+                : this.onKeyPressed.bind(this);
 
-            window.removeEventListener("keydown", this.onKeyDownHandler);
-            window.addEventListener("keydown", this.onKeyDownHandler);
+            window.removeEventListener("keypress", this.onKeyPressedHandler);
+            window.addEventListener("keypress", this.onKeyPressedHandler);
+        },
+
+        clear() {
+            this.ctx.clearRect(0, 0, CONFIG.WIDTH, CONFIG.HEIGHT);
         },
 
         play() {
@@ -138,18 +244,31 @@ function Game() {
 
             this.isPlaying = true;
             this.player.toggleGravity();
+
+            clearInterval(this.addPipeInterval);
+            this.addPipeInterval = setInterval(
+                this.addPipe.bind(this),
+                Math.floor(Math.random() * 2000 + 2000)
+            );
         },
 
-        clear() {
-            this.ctx.clearRect(0, 0, CONFIG.WIDTH, CONFIG.HEIGHT);
+        addPipe() {
+            const pipe = new Pipe();
+            this.pipes.push(pipe);
+            pipe.init();
         },
 
-        render(dt) {
+        render() {
             this.clear();
 
             // player
-            this.player.draw(this.ctx, dt);
+            this.player.draw(this.ctx);
+            this.pipes.forEach(pipe => {
+                pipe.draw(this.ctx);
+            });
+
             this.ctx.fillText(`y: ${this.player.y}`, 10, 10);
+            this.ctx.fillText(`${this.pipes.length}`, 10, 30);
 
             if (!this.player.isAlive()) {
                 this.ctx.fillText(
@@ -158,9 +277,33 @@ function Game() {
                     CONFIG.HEIGHT / 2
                 );
             }
+            if (this.hasPlayerCollided(this.pipes[0])) {
+                this.player.setIsAlive(false);
+            }
         },
 
-        onKeyDown(e) {
+        update() {
+            if (!this.player.isAlive()) {
+                return this.handleGameOver();
+            }
+
+            this.player.update();
+
+            const hiddenPipes = [];
+            this.pipes.forEach((pipe, index) => {
+                pipe.update();
+
+                if (!pipe.isVisibleToPlayer()) {
+                    hiddenPipes.push(index);
+                }
+            });
+
+            hiddenPipes.forEach(pipe => {
+                this.pipes.splice(pipe, 1);
+            });
+        },
+
+        onKeyPressed(e) {
             if (!this.isPlaying || KEYS.SPACE != e.keyCode) {
                 return this.play();
             }
@@ -170,14 +313,33 @@ function Game() {
 
         handleGameOver() {
             this.isPlaying = false;
+            clearInterval(this.addPipeInterval);
+            this.pipes = [];
         },
 
-        update() {
-            if (!this.player.isAlive()) {
-                return this.handleGameOver();
+        hasPlayerCollided(pipe) {
+            if (!pipe) {
+                return false;
             }
 
-            this.player.update();
+            const playerRect = this.player.getRect();
+            const pipeRect = pipe.getRect();
+
+            this.ctx.fillText(`player: ${JSON.stringify(playerRect)}`, 10, 50);
+            this.ctx.fillText(`pipe: ${JSON.stringify(pipeRect)}`, 10, 60);
+
+            const horizontalCollision =
+                playerRect.right >= pipeRect.left &&
+                playerRect.left <= pipeRect.right;
+
+            if (!horizontalCollision) {
+                return false;
+            }
+
+            return (
+                playerRect.bottom >= pipeRect.bottomSection.top ||
+                playerRect.top <= pipeRect.topSection.bottom
+            );
         },
 
         start() {
@@ -197,7 +359,7 @@ function Game() {
 
                 last = now;
 
-                this.render(dt);
+                this.render();
 
                 window.requestAnimationFrame(frame);
             };
